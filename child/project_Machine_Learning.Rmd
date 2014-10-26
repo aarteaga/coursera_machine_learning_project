@@ -1,0 +1,95 @@
+---
+title: 'Machine Learning Project: Weigth Lifting Data'
+author: "aarteaga"
+output:
+  html_document:
+    fig_caption: yes
+---
+
+# Summary
+This project consists of explaining the data of an exercise called barbell lift. The authors wanted to check not the type of execise but the quality of execution. 6 people did the exercise in five different modes that had to be classified by the data in several accerelometers.   
+A random forest model got a success of 97% cases and classified correctly the 20 tests for the submitted part of the project.  
+
+# Introduction
+This study takes data from http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). As the authors explain they have collected data from the movement of 6 subjects making exercises. Their approach is ot focus in the quality of the exercises instead of the movement count itself as the usual wearables do. In this project, the goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways and the goal is to clasiffy them correctly. 
+
+# Data Preprocessing and Exploratory Analysis
+The data for the project development were obtained from the following link: 
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+And the data for the test cases in the submission project here:  
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+After downloading to a local file the data are loaded to a data.frame called raw_data. After some trials 3 kinds of NA data were found in the original file, NA, empty character and DIV/0! values. They are all classified as NA in the reading function.
+```{r}
+#download.file(url = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", destfile = "pml-training.csv")
+#download.file(url = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", destfile = "pml-testing.csv")
+setwd("D:/lana/home/coursera/spe_data_analsysis/8_machine_learning/project")
+raw_data <- read.csv("pml-training.csv", na.strings = c("NA","", "#DIV/0!"))
+testing_data <- read.csv("pml-testing.csv", na.strings = c("NA","", "#DIV/0!"))
+numberOfRows <- nrow(raw_data)
+numberOfFields <- length(raw_data)
+numberOfNA <- sum(is.na(raw_data))
+percentageOfNA <- 100 * sum(is.na(raw_data)) / (ncol(raw_data) * nrow(raw_data)) 
+```
+The number of fields in the data is `r numberOfFields`, and the number of rows `r numberOfRows`, however the amount of NAs is huge, `r numberOfNA` , they are a great fraction of the data: `r percentageOfNA` per cent.  
+
+Next code helps understand that all missing values are concentrated in some variables. The authors use those variables to summarize data but most of their content is NA.
+```{r}
+library(plyr)
+nmissing <- function(x) sum(is.na(x))
+colwise(nmissing)(raw_data)
+```
+In the next code the summarizing variables are removed (all varaible names with kurtosis or stddev or skewness or max or min or amplitud) as well as the three timestamp variables. Finally, the columns 1, 3 and 4 are removed because they are identifiers of the data but not explaining variables. The variable with the name of the subjects is maintained to check it has any effect. The varible to be exlpained, classified is "classe".
+
+```{r}
+data <- raw_data[,-grep("timestamp|kurtosis|stddev|skewness|max|min|amplitude|avg|var", names(raw_data))]
+data <- data[,-c(1,3,4)]
+```
+
+# Machine Learning algorithm
+The machine learning algorithm is performed wth caret package. The fisrt step is to obtain two datasets from the original one, a training dataset and a testing one.  The training datasets is sampled to contain 70% of original data and the remaining 30% is left for testing. An additional accuracy function is defined to make easier to compute fast the accuracy of different models.
+
+```{r}
+set.seed(123321)
+library(caret)
+inTraining <- createDataPartition(data$classe,  p = 0.7 , list = FALSE )
+training <- data[inTraining, ]
+testing <- data[-inTraining,]
+# Accuracy function definition
+accuracy <- function (model) {
+  accu_table <-  table(predict(model, testing), testing$classe)
+  sum(diag(accu_table))/sum(accu_table) 
+}
+```
+The first model tried is a tree model with standard caret package crossvalidation. The final model explains correctly half of the cases.
+```{r}
+modTree <- train(classe ~ .,method="rpart",data=training)
+accuracy(modTree)
+```
+The second model tried is a partial least squares one, in this case preprocessing the variables with principal component to reduce variable  colineality effect. Nevertheless the final model obtains worse result than tree model.
+```{r}
+modPls <- train(classe ~ ., method="pls",data=training, preProcess= "pca")
+accuracy(modPls)
+```
+The next try was a random forest model. In this case the training and testing datasets were built again but only including 20% of the samples in the training set. The reason for this change was to reduce computational time in the old system were this analysis was being done.  In spite of reducing the training set the results were much better than in the previous two models. The training control was also changed from standard cross validation to out of bag. 
+```{r}
+#
+set.seed(123321)
+inTraining <- createDataPartition(data$classe, p=0.2, list=FALSE )
+training <- data[inTraining, ]
+testing <- data[-inTraining,]
+
+ctrl = trainControl(method = "oob", repeats = 5 )
+modRf <- train(classe~., data=training, model="rf", trControl = ctrl, influence=TRUE)
+accuracy(modRf)
+confusionMatrix(predict(modRf, newdata=testing), testing$classe)
+```
+# Conclusions
+This model is accurate for the 97% of the testing cases and the confussion matrix shows it is accurate for the 5 cases. The next code shows the relative importance of the 20 most meaningful variables in the random forest model.
+```{r}
+varImp(modRf)
+```
+Additionally the model classified correctly the 20 cases in the testing_data for the project submission part.
+
+
